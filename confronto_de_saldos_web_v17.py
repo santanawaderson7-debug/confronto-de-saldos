@@ -82,7 +82,6 @@ def parse_currency_to_float(s: str):
 
 
 def format_brazilian(value):
-    # <-- CORREÇÃO 1 APLICADA AQUI
     # pd.isna() captura None, np.nan, e pd.NA
     if pd.isna(value):
         return ''
@@ -262,9 +261,6 @@ def process_confronto_streamlit(df_accounts: pd.DataFrame, pdf_files_bytes: List
 def create_excel_bytes(results: List[dict], totals: Tuple[float, float, float, float]) -> bytes:
     df = pd.DataFrame(results)
     
-    # É seguro aplicar a formatação aqui, pois a função format_brazilian
-    # agora lida com os NaNs corretamente
-    
     headers_map = {
         "account": "Conta",
         "excel_prev": "Excel Prev",
@@ -281,8 +277,6 @@ def create_excel_bytes(results: List[dict], totals: Tuple[float, float, float, f
 
     for col in ["Excel Prev", "PDF Prev", "Dif Prev", "Excel Curr", "PDF Curr", "Dif Curr"]:
         if col in df.columns:
-            # pd.notna() é o correto aqui para a lógica de apply,
-            # mas format_brazilian já cuida disso.
             df[col] = df[col].apply(format_brazilian)
 
     total_prev_excel, total_prev_pdf, total_curr_excel, total_curr_pdf = totals
@@ -615,13 +609,13 @@ if results_display:
         gb.configure_default_column(cellStyle=js_cell_style)
         gridOptions = gb.build()
         
-        # <-- CORREÇÃO 2 APLICADA AQUI
-        # Usar .value para passar a string 'no_update' em vez do objeto Enum
+        # <-- CORREÇÃO FINAL APLICADA AQUI
+        # Passar o NOME do Enum como string literal.
         AgGrid(df_display_formatted, 
                gridOptions=gridOptions, 
                height=400, 
                fit_columns_on_grid_load=True, 
-               update_mode=GridUpdateMode.NO_UPDATE.value)
+               update_mode="NO_UPDATE")
     else:
         # fallback plain
         st.dataframe(df_display_formatted, use_container_width=True)
