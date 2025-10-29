@@ -82,6 +82,7 @@ def parse_currency_to_float(s: str):
 
 
 def format_brazilian(value):
+    # Esta verificação agora funciona corretamente com None (ao invés de np.nan)
     if value is None:
         return ''
     try:
@@ -259,6 +260,11 @@ def process_confronto_streamlit(df_accounts: pd.DataFrame, pdf_files_bytes: List
 # -----------------------
 def create_excel_bytes(results: List[dict], totals: Tuple[float, float, float, float]) -> bytes:
     df = pd.DataFrame(results)
+    
+    # <-- CORREÇÃO: Aplicar a conversão None -> '' aqui, ANTES de formatar.
+    # Isso garante que a função format_brazilian receba None e retorne '' corretamente.
+    df_excel_safe = df.astype(object).where(pd.notnull(df), None)
+    
     headers_map = {
         "account": "Conta",
         "excel_prev": "Excel Prev",
@@ -271,11 +277,12 @@ def create_excel_bytes(results: List[dict], totals: Tuple[float, float, float, f
         "status_curr": "Status Curr",
         "pdf_file": "Arquivo PDF"
     }
-    df.rename(columns=headers_map, inplace=True)
+    df_excel_safe.rename(columns=headers_map, inplace=True)
 
     for col in ["Excel Prev", "PDF Prev", "Dif Prev", "Excel Curr", "PDF Curr", "Dif Curr"]:
-        if col in df.columns:
-            df[col] = df[col].apply(lambda x: format_brazilian(x) if pd.notna(x) else '')
+        if col in df_excel_safe.columns:
+            # Usar format_brazilian, que já trata None corretamente
+            df_excel_safe[col] = df_excel_safe[col].apply(format_brazilian)
 
     total_prev_excel, total_prev_pdf, total_curr_excel, total_curr_pdf = totals
     totals_row = {
@@ -290,11 +297,11 @@ def create_excel_bytes(results: List[dict], totals: Tuple[float, float, float, f
         "Status Curr": "",
         "Arquivo PDF": ""
     }
-    df = pd.concat([df, pd.DataFrame([totals_row])], ignore_index=True)
+    df_out = pd.concat([df_excel_safe, pd.DataFrame([totals_row])], ignore_index=True)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Confronto de Saldos")
+        df_out.to_excel(writer, index=False, sheet_name="Confronto de Saldos")
         ws = writer.sheets["Confronto de Saldos"]
 
         from openpyxl.styles import Border, Side, Alignment, PatternFill, Font
@@ -559,24 +566,34 @@ st.markdown("---")
 st.subheader("Resultados")
 
 if results_display:
-    df_display = pd.DataFrame(results_display)
+    df_display_raw = pd.DataFrame(results_display)
+    
+    # <-- CORREÇÃO APLICADA AQUI
+    # Converte 'np.nan' (não serializável) para 'None' (serializável)
+    # Isso corrige o 'MarshallComponentException' no AgGrid
+    df_display = df_display_raw.astype(object).where(pd.notnull(df_display_raw), None)
+
+    # Cria cópia para exibição formatada
+    df_display_formatted = pd.DataFrame()
+    
     # format columns for display
-    df_display['Excel Prev'] = df_display['excel_prev'].apply(format_brazilian)
-    df_display['PDF Prev'] = df_display['pdf_prev'].apply(format_brazilian)
-    df_display['Dif Prev'] = df_display['diff_prev'].apply(format_brazilian)
-    df_display['Excel Curr'] = df_display['excel_curr'].apply(format_brazilian)
-    df_display['PDF Curr'] = df_display['pdf_curr'].apply(format_brazilian)
-    df_display['Dif Curr'] = df_display['diff_curr'].apply(format_brazilian)
-    df_display['Status Prev'] = df_display['status_prev']
-    df_display['Status Curr'] = df_display['status_curr']
-    df_display['Conta'] = df_display['account']
-    df_display = df_display[[
+    df_display_formatted['Excel Prev'] = df_display['excel_prev'].apply(format_brazilian)
+    df_display_formatted['PDF Prev'] = df_display['pdf_prev'].apply(format_brazilian)
+    df_display_formatted['Dif Prev'] = df_display['diff_prev'].apply(format_brazilian)
+    df_display_formatted['Excel Curr'] = df_display['excel_curr'].apply(format_brazilian)
+    df_display_formatted['PDF Curr'] = df_display['pdf_curr'].apply(format_brazilian)
+    df_display_formatted['Dif Curr'] = df_display['diff_curr'].apply(format_brazilian)
+    df_display_formatted['Status Prev'] = df_display['status_prev']
+    df_display_formatted['Status Curr'] = df_display['status_curr']
+    df_display_formatted['Conta'] = df_display['account']
+    
+    df_display_formatted = df_display_formatted[[
         'Conta', 'Excel Prev', 'PDF Prev', 'Dif Prev', 'Status Prev',
         'Excel Curr', 'PDF Curr', 'Dif Curr', 'Status Curr'
     ]]
 
     if AgGrid is not None and GridOptionsBuilder is not None:
-        gb = GridOptionsBuilder.from_dataframe(df_display)
+        gb = GridOptionsBuilder.from_dataframe(df_display_formatted) # Passar o DF formatado
         gb.configure_default_column(aggregate=True, groupable=False, value=True, enableRowGroup=False, resizable=True)
         # center-align
         gb.configure_column("Conta", header_name="Conta", cellStyle={'textAlign': 'center'})
@@ -600,10 +617,11 @@ if results_display:
         """)
         gb.configure_default_column(cellStyle=js_cell_style)
         gridOptions = gb.build()
-        AgGrid(df_display, gridOptions=gridOptions, height=400, fit_columns_on_grid_load=True, update_mode=GridUpdateMode.NO_UPDATE)
+        # Passar o DF formatado para o AgGrid
+        AgGrid(df_display_formatted, gridOptions=gridOptions, height=400, fit_columns_on_grid_load=True, update_mode=GridUpdateMode.NO_UPDATE)
     else:
         # fallback plain
-        st.dataframe(df_display, use_container_width=True)
+        st.dataframe(df_display_formatted, use_container_width=True)
 
     # totals
     st.markdown("**Totais (por fonte)**")
@@ -621,12 +639,14 @@ if results_display:
     colx, coly = st.columns(2)
     with colx:
         try:
+            # Passar os resultados originais (lista de dicts) para a função de export
             excel_bytes = create_excel_bytes(results_display, totals)
             st.download_button("Exportar Excel (.xlsx)", data=excel_bytes, file_name="Relatorio_Confronto.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         except Exception as e:
             st.error(f"Erro ao gerar Excel: {e}")
     with coly:
         try:
+            # Passar os resultados originais (lista de dicts) para a função de export
             pdf_bytes = create_pdf_bytes(results_display, totals)
             st.download_button("Exportar PDF (.pdf)", data=pdf_bytes, file_name="Relatorio_Confronto.pdf", mime="application/pdf")
         except Exception as e:
