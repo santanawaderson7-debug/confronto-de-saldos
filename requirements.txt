@@ -1,0 +1,10 @@
+streamlit
+pandas
+pdfplumber
+openpyxl
+reportlab
+pytesseract
+pdf2image
+pillow
+streamlit-aggrid
+openpyxl
