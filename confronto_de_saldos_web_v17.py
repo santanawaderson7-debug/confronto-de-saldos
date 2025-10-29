@@ -82,8 +82,9 @@ def parse_currency_to_float(s: str):
 
 
 def format_brazilian(value):
-    # Esta verificação agora funciona corretamente com None (ao invés de np.nan)
-    if value is None:
+    # <-- CORREÇÃO 1 APLICADA AQUI
+    # pd.isna() captura None, np.nan, e pd.NA
+    if pd.isna(value):
         return ''
     try:
         if isinstance(value, (int, float)):
@@ -261,9 +262,8 @@ def process_confronto_streamlit(df_accounts: pd.DataFrame, pdf_files_bytes: List
 def create_excel_bytes(results: List[dict], totals: Tuple[float, float, float, float]) -> bytes:
     df = pd.DataFrame(results)
     
-    # <-- CORREÇÃO: Aplicar a conversão None -> '' aqui, ANTES de formatar.
-    # Isso garante que a função format_brazilian receba None e retorne '' corretamente.
-    df_excel_safe = df.astype(object).where(pd.notnull(df), None)
+    # É seguro aplicar a formatação aqui, pois a função format_brazilian
+    # agora lida com os NaNs corretamente
     
     headers_map = {
         "account": "Conta",
@@ -277,12 +277,13 @@ def create_excel_bytes(results: List[dict], totals: Tuple[float, float, float, f
         "status_curr": "Status Curr",
         "pdf_file": "Arquivo PDF"
     }
-    df_excel_safe.rename(columns=headers_map, inplace=True)
+    df.rename(columns=headers_map, inplace=True)
 
     for col in ["Excel Prev", "PDF Prev", "Dif Prev", "Excel Curr", "PDF Curr", "Dif Curr"]:
-        if col in df_excel_safe.columns:
-            # Usar format_brazilian, que já trata None corretamente
-            df_excel_safe[col] = df_excel_safe[col].apply(format_brazilian)
+        if col in df.columns:
+            # pd.notna() é o correto aqui para a lógica de apply,
+            # mas format_brazilian já cuida disso.
+            df[col] = df[col].apply(format_brazilian)
 
     total_prev_excel, total_prev_pdf, total_curr_excel, total_curr_pdf = totals
     totals_row = {
@@ -297,7 +298,7 @@ def create_excel_bytes(results: List[dict], totals: Tuple[float, float, float, f
         "Status Curr": "",
         "Arquivo PDF": ""
     }
-    df_out = pd.concat([df_excel_safe, pd.DataFrame([totals_row])], ignore_index=True)
+    df_out = pd.concat([df, pd.DataFrame([totals_row])], ignore_index=True)
 
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -566,17 +567,13 @@ st.markdown("---")
 st.subheader("Resultados")
 
 if results_display:
-    df_display_raw = pd.DataFrame(results_display)
+    # Criar o DF com os dados brutos (pode conter np.nan)
+    df_display = pd.DataFrame(results_display)
     
-    # <-- CORREÇÃO APLICADA AQUI
-    # Converte 'np.nan' (não serializável) para 'None' (serializável)
-    # Isso corrige o 'MarshallComponentException' no AgGrid
-    df_display = df_display_raw.astype(object).where(pd.notnull(df_display_raw), None)
-
-    # Cria cópia para exibição formatada
+    # Criar um novo DF formatado para exibição.
+    # Graças à correção na Etapa 1, format_brazilian(np.nan) retorna ''
+    # O resultado é um DF 100% serializável (sem np.nan)
     df_display_formatted = pd.DataFrame()
-    
-    # format columns for display
     df_display_formatted['Excel Prev'] = df_display['excel_prev'].apply(format_brazilian)
     df_display_formatted['PDF Prev'] = df_display['pdf_prev'].apply(format_brazilian)
     df_display_formatted['Dif Prev'] = df_display['diff_prev'].apply(format_brazilian)
@@ -593,7 +590,7 @@ if results_display:
     ]]
 
     if AgGrid is not None and GridOptionsBuilder is not None:
-        gb = GridOptionsBuilder.from_dataframe(df_display_formatted) # Passar o DF formatado
+        gb = GridOptionsBuilder.from_dataframe(df_display_formatted)
         gb.configure_default_column(aggregate=True, groupable=False, value=True, enableRowGroup=False, resizable=True)
         # center-align
         gb.configure_column("Conta", header_name="Conta", cellStyle={'textAlign': 'center'})
@@ -617,8 +614,14 @@ if results_display:
         """)
         gb.configure_default_column(cellStyle=js_cell_style)
         gridOptions = gb.build()
-        # Passar o DF formatado para o AgGrid
-        AgGrid(df_display_formatted, gridOptions=gridOptions, height=400, fit_columns_on_grid_load=True, update_mode=GridUpdateMode.NO_UPDATE)
+        
+        # <-- CORREÇÃO 2 APLICADA AQUI
+        # Usar .value para passar a string 'no_update' em vez do objeto Enum
+        AgGrid(df_display_formatted, 
+               gridOptions=gridOptions, 
+               height=400, 
+               fit_columns_on_grid_load=True, 
+               update_mode=GridUpdateMode.NO_UPDATE.value)
     else:
         # fallback plain
         st.dataframe(df_display_formatted, use_container_width=True)
