@@ -1,6 +1,6 @@
-# ==============================
-# Requisitos principais
-# ==============================
+# -----------------------------
+# Dependências principais
+# -----------------------------
 streamlit==1.38.0
 pandas>=2.0
 openpyxl>=3.1.0
@@ -9,17 +9,12 @@ pdf2image>=1.17.0
 pytesseract>=0.3.10
 reportlab>=4.0.4
 
-# ==============================
-# Tabela interativa (AgGrid)
-# ==============================
-# Versão estável e compatível com Python 3.13 no Streamlit Cloud
+# -----------------------------
+# Interface com AgGrid (opcional)
+# -----------------------------
 st-aggrid==1.0.5
 
-# ==============================
-# Fallback automático
-# (caso st-aggrid falhe na instalação, o app ainda funcionará)
-# ==============================
-try:
-    import st_aggrid
-except ImportError:
-    print("⚠️ st-aggrid não disponível — o app usará st.dataframe como fallback.")
+# -----------------------------
+# Segurança e compatibilidade
+# -----------------------------
+typing-extensions>=4.10.0
