@@ -1,5 +1,5 @@
 streamlit==1.38.0
-st-aggrid==0.3.4.post3
+st-aggrid==1.0.5
 pandas
 pdfplumber
 pdf2image
